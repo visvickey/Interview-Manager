@@ -1,1 +1,996 @@
-<!DOCTYPE html><html lang="en"><head>    <meta charset="UTF-8">    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">    <title>Interview Manager</title>    <!-- Tailwind CSS for styling -->    <script src="https://cdn.tailwindcss.com"></script>    <!-- Icons -->    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">    <style>        body { -webkit-tap-highlight-color: transparent; }        .slide-in { animation: slideIn 0.3s ease-out; }        @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }    </style></head><body class="bg-gray-100 text-gray-800 font-sans pb-20">    <!-- Header -->    <header class="bg-blue-600 text-white p-4 shadow-md sticky top-0 z-50 flex justify-between items-center">        <h1 class="text-xl font-bold">Interviews</h1>        <button onclick="requestNotificationPermission()" class="text-sm bg-blue-700 px-3 py-1 rounded hover:bg-blue-800 transition">            <i class="fas fa-bell mr-1"></i> Enable Alerts        </button>    </header>    <!-- Main Content -->    <main class="p-4 max-w-md mx-auto">                <!-- Stats Summary -->        <div class="grid grid-cols-3 gap-3 mb-6">            <div class="bg-white p-3 rounded-lg shadow text-center">                <div id="stat-upcoming" class="text-2xl font-bold text-blue-600">0</div>                <div class="text-xs text-gray-500">Upcoming</div>            </div>            <div class="bg-white p-3 rounded-lg shadow text-center">                <div id="stat-completed" class="text-2xl font-bold text-green-600">0</div>                <div class="text-xs text-gray-500">Done</div>            </div>            <div class="bg-white p-3 rounded-lg shadow text-center">                <div id="stat-pending" class="text-2xl font-bold text-orange-600">0</div>                <div class="text-xs text-gray-500">Pending</div>            </div>        </div>        <!-- Add Button -->        <button onclick="toggleModal('add-modal')" class="w-full bg-blue-600 text-white py-3 rounded-lg shadow-lg font-semibold hover:bg-blue-700 transition mb-6 flex items-center justify-center">            <i class="fas fa-plus mr-2"></i> Schedule New Interview        </button>        <!-- Search -->        <div class="relative mb-4">            <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>            <input type="text" id="search-input" onkeyup="renderInterviews()" placeholder="Search candidates..." class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:border-blue-500">        </div>        <!-- Interview List -->        <div id="interview-list" class="space-y-4">            <!-- Items injected by JS -->        </div>    </main>    <!-- Add Candidate Modal -->    <div id="add-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-end sm:items-center justify-center">        <div class="bg-white w-full sm:max-w-md p-6 rounded-t-2xl sm:rounded-2xl slide-in">            <div class="flex justify-between items-center mb-4">                <h2 class="text-xl font-bold">New Interview</h2>                <button onclick="toggleModal('add-modal')" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times text-xl"></i></button>            </div>            <form id="add-form" onsubmit="addInterview(event)">                <div class="space-y-3">                    <input type="text" id="c-name" placeholder="Candidate Name" required class="w-full p-3 border rounded bg-gray-50">                    <input type="text" id="c-role" placeholder="Job Role" required class="w-full p-3 border rounded bg-gray-50">                    <div class="grid grid-cols-2 gap-2">                        <input type="date" id="c-date" required class="w-full p-3 border rounded bg-gray-50">                        <input type="time" id="c-time" required class="w-full p-3 border rounded bg-gray-50">                    </div>                    <textarea id="c-notes" placeholder="Notes / Resume Link" class="w-full p-3 border rounded bg-gray-50 h-20"></textarea>                                        <div class="flex items-center space-x-2 mt-2">                        <input type="checkbox" id="c-reminder" checked class="w-5 h-5 text-blue-600">                        <label for="c-reminder" class="text-gray-600">Set reminder (15 min before)</label>                    </div>                </div>                <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 mt-6 rounded-lg hover:bg-blue-700">Save Interview</button>            </form>        </div>    </div>    <!-- Status/Details Modal -->    <div id="status-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-end sm:items-center justify-center">        <div class="bg-white w-full sm:max-w-md p-6 rounded-t-2xl sm:rounded-2xl slide-in">            <div id="modal-content">                <!-- Injected by JS -->            </div>            <div class="mt-6 grid grid-cols-2 gap-3">                <button onclick="updateStatus('Selected')" class="bg-green-100 text-green-700 py-2 rounded font-medium hover:bg-green-200">Selected</button>                <button onclick="updateStatus('Rejected')" class="bg-red-100 text-red-700 py-2 rounded font-medium hover:bg-red-200">Rejected</button>                <button onclick="updateStatus('Completed')" class="bg-gray-100 text-gray-700 py-2 rounded font-medium hover:bg-gray-200">Mark Done</button>                <button onclick="deleteInterview()" class="text-red-500 py-2 font-medium">Delete</button>            </div>        </div>    </div>    <script>        // --- DATA STORE ---        let interviews = JSON.parse(localStorage.getItem('interviews')) || [];        let activeId = null;        // --- CORE FUNCTIONS ---        function save() {            localStorage.setItem('interviews', JSON.stringify(interviews));            renderInterviews();            updateStats();        }        function addInterview(e) {            e.preventDefault();            const date = document.getElementById('c-date').value;            const time = document.getElementById('c-time').value;                        const newInterview = {                id: Date.now(),                name: document.getElementById('c-name').value,                role: document.getElementById('c-role').value,                datetime: `${date}T${time}`,                notes: document.getElementById('c-notes').value,                status: 'Scheduled',                reminder: document.getElementById('c-reminder').checked            };            interviews.push(newInterview);            save();            e.target.reset();            toggleModal('add-modal');        }        function renderInterviews() {            const list = document.getElementById('interview-list');            const search = document.getElementById('search-input').value.toLowerCase();            list.innerHTML = '';            // Sort: Scheduled first, then by date            const filtered = interviews                .filter(i => i.name.toLowerCase().includes(search) || i.role.toLowerCase().includes(search))                .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));            filtered.forEach(i => {                const dateObj = new Date(i.datetime);                const isPast = new Date() > dateObj;                const statusColor = i.status === 'Selected' ? 'text-green-600 bg-green-50' :                                    i.status === 'Rejected' ? 'text-red-600 bg-red-50' :                                    'text-blue-600 bg-blue-50';                const card = `                    <div onclick="openStatusModal(${i.id})" class="bg-white p-4 rounded-lg shadow border-l-4 ${i.status === 'Scheduled' ? 'border-blue-500' : 'border-gray-300'} hover:bg-gray-50 transition cursor-pointer flex justify-between items-start">                        <div>                            <h3 class="font-bold text-lg">${i.name}</h3>                            <p class="text-gray-600 text-sm">${i.role}</p>                            <div class="flex items-center text-xs text-gray-500 mt-2">                                <i class="far fa-calendar-alt mr-1"></i> ${dateObj.toLocaleDateString()}                                 <i class="far fa-clock ml-3 mr-1"></i> ${dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}                            </div>                        </div>                        <span class="px-2 py-1 rounded text-xs font-bold ${statusColor}">${i.status}</span>                    </div>                `;                list.innerHTML += card;            });        }        function updateStats() {            document.getElementById('stat-upcoming').innerText = interviews.filter(i => i.status === 'Scheduled').length;            document.getElementById('stat-completed').innerText = interviews.filter(i => ['Selected', 'Rejected', 'Completed'].includes(i.status)).length;            document.getElementById('stat-pending').innerText = interviews.filter(i => i.status === 'Scheduled' && new Date(i.datetime) < new Date()).length; // Overdue        }        // --- MODALS ---        function toggleModal(id) {            const modal = document.getElementById(id);            if (modal.classList.contains('hidden')) {                modal.classList.remove('hidden');            } else {                modal.classList.add('hidden');            }        }        function openStatusModal(id) {            activeId = id;            const i = interviews.find(x => x.id === id);            const content = `                <h2 class="text-xl font-bold mb-1">${i.name}</h2>                <p class="text-gray-500 mb-4">${i.role}</p>                <div class="bg-gray-50 p-3 rounded mb-4 text-sm text-gray-700">                    <p><strong>Time:</strong> ${new Date(i.datetime).toLocaleString()}</p>                    <p class="mt-2"><strong>Notes:</strong><br>${i.notes || 'No notes'}</p>                    <p class="mt-2"><strong>Current Status:</strong> ${i.status}</p>                </div>            `;            document.getElementById('modal-content').innerHTML = content;            toggleModal('status-modal');        }        function updateStatus(newStatus) {            const index = interviews.findIndex(i => i.id === activeId);            if (index > -1) {                interviews[index].status = newStatus;                save();                toggleModal('status-modal');            }        }        function deleteInterview() {            if(confirm('Delete this record?')) {                interviews = interviews.filter(i => i.id !== activeId);                save();                toggleModal('status-modal');            }        }        // --- REMINDERS & NOTIFICATIONS ---        function requestNotificationPermission() {            if (!("Notification" in window)) {                alert("This browser does not support desktop notification");            } else if (Notification.permission !== "denied") {                Notification.requestPermission().then(permission => {                    if (permission === "granted") {                        new Notification("Alerts Enabled", { body: "You will be notified 15 mins before interviews." });                    }                });            }        }        function checkReminders() {            const now = new Date();            interviews.forEach(i => {                if (i.status === 'Scheduled' && i.reminder && !i.notified) {                    const intTime = new Date(i.datetime);                    const diffMinutes = (intTime - now) / 1000 / 60;                                        // Alert if within 15 mins                    if (diffMinutes > 0 && diffMinutes <= 15) {                        if (Notification.permission === "granted") {                            new Notification(`Interview Reminder: ${i.name}`, {                                body: `${i.role} interview starts in ${Math.round(diffMinutes)} mins!`,                                icon: "https://cdn-icons-png.flaticon.com/512/2910/2910792.png"                            });                        }                        i.notified = true; // Prevent spam                        save();                    }                }            });        }        // Run reminders check every minute        setInterval(checkReminders, 60000);                // Init        renderInterviews();        updateStats();    </script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Interviews">
+    <title>Interview Manager</title>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        :root {
+            --bg-primary: #f8fafc;
+            --bg-secondary: #ffffff;
+            --bg-card: #ffffff;
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --border-color: #e2e8f0;
+            --shadow: rgba(0, 0, 0, 0.05);
+            --accent-1: #ec4899;
+            --accent-2: #8b5cf6;
+            --accent-3: #3b82f6;
+            --accent-4: #10b981;
+            --accent-5: #f59e0b;
+            --gradient-1: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);
+            --gradient-2: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
+            --gradient-3: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+            --gradient-4: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --status-scheduled-bg: #dbeafe;
+            --status-scheduled-text: #1e40af;
+            --status-completed-bg: #d1fae5;
+            --status-completed-text: #065f46;
+        }
+        
+        body.dark-mode {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border-color: rgba(148, 163, 184, 0.2);
+            --shadow: rgba(0, 0, 0, 0.3);
+            --status-scheduled-bg: rgba(59, 130, 246, 0.2);
+            --status-scheduled-text: #60a5fa;
+            --status-completed-bg: rgba(16, 185, 129, 0.2);
+            --status-completed-text: #34d399;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+            padding-bottom: 80px;
+            transition: background 0.3s, color 0.3s;
+        }
+        
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 2px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            padding: 20px 20px 16px;
+            box-shadow: 0 4px 12px var(--shadow);
+            transition: all 0.3s;
+        }
+        
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .logo {
+            width: 40px;
+            height: 40px;
+            font-size: 28px;
+        }
+        
+        h1 {
+            font-size: 26px;
+            font-weight: 800;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        
+        .theme-toggle {
+            background: var(--bg-card);
+            border: 2px solid var(--border-color);
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 22px;
+            transition: all 0.3s;
+            box-shadow: 0 2px 8px var(--shadow);
+        }
+        
+        .theme-toggle:active {
+            transform: scale(0.95);
+        }
+        
+        .btn-add {
+            background: var(--gradient-1);
+            border: none;
+            border-radius: 50%;
+            width: 56px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(236, 72, 153, 0.4);
+            transition: all 0.3s;
+        }
+        
+        .btn-add:active {
+            transform: scale(0.95);
+        }
+        
+        .notification-prompt {
+            background: linear-gradient(135deg, rgba(251, 191, 36, 0.15) 0%, rgba(245, 158, 11, 0.15) 100%);
+            border: 2px solid #fbbf24;
+            border-radius: 16px;
+            padding: 14px 16px;
+            color: var(--text-primary);
+            font-size: 14px;
+            cursor: pointer;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        
+        .notification-prompt:active {
+            transform: scale(0.98);
+        }
+        
+        .notification-icon {
+            font-size: 24px;
+        }
+        
+        .upcoming-alert {
+            margin: 20px;
+            background: var(--bg-card);
+            border: 3px solid;
+            border-image: var(--gradient-2) 1;
+            border-radius: 20px;
+            padding: 20px;
+            animation: fadeIn 0.3s ease-out;
+            box-shadow: 0 4px 16px var(--shadow);
+        }
+        
+        .container {
+            padding: 0 20px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: var(--text-secondary);
+        }
+        
+        .empty-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .interview-card {
+            background: var(--bg-card);
+            border: 2px solid var(--border-color);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 16px;
+            cursor: pointer;
+            animation: slideUp 0.3s ease-out both;
+            box-shadow: 0 4px 12px var(--shadow);
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .interview-card:active {
+            transform: scale(0.98);
+        }
+        
+        .interview-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--gradient-1);
+        }
+        
+        .card-icon {
+            font-size: 48px;
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            opacity: 0.1;
+        }
+        
+        .field-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+            padding: 10px;
+            background: var(--bg-primary);
+            border-radius: 12px;
+        }
+        
+        .field-icon {
+            font-size: 24px;
+            min-width: 32px;
+            text-align: center;
+        }
+        
+        .field-content {
+            flex: 1;
+        }
+        
+        .field-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+        
+        .field-value {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .status-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 2px 8px var(--shadow);
+        }
+        
+        .status-scheduled {
+            background: var(--status-scheduled-bg);
+            color: var(--status-scheduled-text);
+        }
+        
+        .status-completed {
+            background: var(--status-completed-bg);
+            color: var(--status-completed-text);
+        }
+        
+        .status-offer-extended {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%);
+            color: #8b5cf6;
+        }
+        
+        .status-rejected {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(251, 146, 60, 0.2) 100%);
+            color: #f59e0b;
+        }
+        
+        .status-cancelled {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(248, 113, 113, 0.2) 100%);
+            color: #ef4444;
+        }
+        
+        .expanded-actions {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 2px solid var(--border-color);
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        
+        .action-btn {
+            padding: 14px;
+            border-radius: 14px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s;
+            border: 2px solid;
+            box-shadow: 0 4px 12px var(--shadow);
+        }
+        
+        .action-btn:active {
+            transform: scale(0.95);
+        }
+        
+        .action-complete {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%);
+            border-color: #10b981;
+            color: #10b981;
+        }
+        
+        .action-offer {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
+            border-color: #8b5cf6;
+            color: #8b5cf6;
+        }
+        
+        .action-reject {
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(251, 146, 60, 0.15) 100%);
+            border-color: #f59e0b;
+            color: #f59e0b;
+        }
+        
+        .action-delete {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(248, 113, 113, 0.15) 100%);
+            border-color: #ef4444;
+            color: #ef4444;
+        }
+        
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: flex-end;
+            z-index: 1000;
+            animation: fadeIn 0.2s ease-out;
+        }
+        
+        .modal-content {
+            background: var(--bg-card);
+            border-top-left-radius: 30px;
+            border-top-right-radius: 30px;
+            padding: 28px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease-out;
+            box-shadow: 0 -8px 32px var(--shadow);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 28px;
+        }
+        
+        .modal-title {
+            font-size: 28px;
+            font-weight: 800;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .close-btn {
+            background: var(--bg-primary);
+            border: 2px solid var(--border-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .close-btn:active {
+            transform: scale(0.9);
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        
+        .label-icon {
+            font-size: 22px;
+        }
+        
+        .form-input,
+        .form-textarea {
+            width: 100%;
+            padding: 16px;
+            background: var(--bg-primary);
+            border: 2px solid var(--border-color);
+            border-radius: 14px;
+            color: var(--text-primary);
+            font-size: 16px;
+            outline: none;
+            font-family: inherit;
+            transition: all 0.3s;
+        }
+        
+        .form-input:focus,
+        .form-textarea:focus {
+            border-color: #ec4899;
+            box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.1);
+        }
+        
+        .form-textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+        
+        .btn-primary {
+            width: 100%;
+            padding: 18px;
+            background: var(--gradient-1);
+            border: none;
+            border-radius: 16px;
+            color: #fff;
+            font-size: 18px;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(236, 72, 153, 0.4);
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        
+        .btn-primary:active {
+            transform: scale(0.98);
+        }
+        
+        .notes-display {
+            background: var(--bg-primary);
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            color: var(--text-primary);
+            line-height: 1.6;
+            border: 2px solid var(--border-color);
+        }
+        
+        .notes-label {
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--gradient-1);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-top">
+            <div class="header-title">
+                <div class="logo">👔</div>
+                <h1>Interviews</h1>
+            </div>
+            <div class="header-actions">
+                <button class="theme-toggle" onclick="toggleTheme()" id="themeToggle">
+                    🌙
+                </button>
+                <button class="btn-add" onclick="openAddModal()">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        
+        <button id="notificationBtn" class="notification-prompt hidden" onclick="enableNotifications()">
+            <span class="notification-icon">🔔</span>
+            <span>Enable Notifications for Reminders</span>
+        </button>
+    </div>
+
+    <div id="upcomingAlert" class="upcoming-alert hidden"></div>
+
+    <div class="container">
+        <div id="interviewList"></div>
+        <div id="emptyState" class="empty-state hidden">
+            <div class="empty-icon">📋</div>
+            <p style="font-size: 18px; margin: 0; font-weight: 700; color: var(--text-primary);">No interviews scheduled</p>
+            <p style="font-size: 15px; margin-top: 10px;">Tap the ➕ button to add your first interview</p>
+        </div>
+    </div>
+
+    <!-- Add Interview Modal -->
+    <div id="addModal" class="modal-overlay hidden" onclick="closeModalOnOverlay(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 class="modal-title">
+                    <span>✨</span>
+                    New Interview
+                </h2>
+                <button onclick="closeAddModal()" class="close-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            
+            <form onsubmit="handleAddInterview(event)">
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="label-icon">👤</span>
+                        Candidate Name *
+                    </label>
+                    <input type="text" id="candidateName" class="form-input" placeholder="Enter candidate name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="label-icon">💼</span>
+                        Position *
+                    </label>
+                    <input type="text" id="position" class="form-input" placeholder="e.g., Software Engineer" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="label-icon">📞</span>
+                        Phone Number *
+                    </label>
+                    <input type="tel" id="phoneNumber" class="form-input" placeholder="e.g., +1 234 567 8900" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="label-icon">📅</span>
+                        Date & Time *
+                    </label>
+                    <input type="datetime-local" id="dateTime" class="form-input" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="label-icon">📝</span>
+                        Notes (Optional)
+                    </label>
+                    <textarea id="notes" class="form-textarea" placeholder="Add any notes about the candidate or interview..."></textarea>
+                </div>
+                
+                <button type="submit" class="btn-primary">
+                    <span style="font-size: 20px;">➕</span>
+                    Add Interview
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let interviews = [];
+        let notificationsEnabled = false;
+        let expandedId = null;
+        let isDarkMode = false;
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', function() {
+            loadTheme();
+            loadInterviews();
+            checkNotificationPermission();
+            renderInterviews();
+            
+            // Set minimum datetime to now
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            document.getElementById('dateTime').min = now.toISOString().slice(0, 16);
+            
+            // Check for upcoming interviews every minute
+            setInterval(() => {
+                renderInterviews();
+                checkUpcomingInterviews();
+            }, 60000);
+        });
+
+        function loadTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                isDarkMode = true;
+                document.body.classList.add('dark-mode');
+                document.getElementById('themeToggle').textContent = '☀️';
+            }
+        }
+
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            if (isDarkMode) {
+                document.body.classList.add('dark-mode');
+                document.getElementById('themeToggle').textContent = '☀️';
+                localStorage.setItem('theme', 'dark');
+            } else {
+                document.body.classList.remove('dark-mode');
+                document.getElementById('themeToggle').textContent = '🌙';
+                localStorage.setItem('theme', 'light');
+            }
+        }
+
+        function loadInterviews() {
+            const stored = localStorage.getItem('interviews');
+            if (stored) {
+                interviews = JSON.parse(stored);
+            }
+        }
+
+        function saveInterviews() {
+            localStorage.setItem('interviews', JSON.stringify(interviews));
+        }
+
+        function checkNotificationPermission() {
+            if ('Notification' in window) {
+                if (Notification.permission === 'granted') {
+                    notificationsEnabled = true;
+                } else if (Notification.permission === 'default') {
+                    document.getElementById('notificationBtn').classList.remove('hidden');
+                }
+            }
+        }
+
+        async function enableNotifications() {
+            if ('Notification' in window) {
+                const permission = await Notification.requestPermission();
+                if (permission === 'granted') {
+                    notificationsEnabled = true;
+                    document.getElementById('notificationBtn').classList.add('hidden');
+                    
+                    new Notification('Notifications Enabled! 🎉', {
+                        body: 'You will receive reminders before your interviews',
+                        icon: '📅'
+                    });
+                }
+            }
+        }
+
+        function checkUpcomingInterviews() {
+            if (!notificationsEnabled) return;
+            
+            const now = new Date();
+            interviews.forEach(interview => {
+                if (interview.status !== 'scheduled') return;
+                
+                const interviewTime = new Date(interview.dateTime);
+                const timeDiff = interviewTime - now;
+                const minutesUntil = Math.floor(timeDiff / 60000);
+                
+                if (minutesUntil === 15 || minutesUntil === 60) {
+                    const lastNotified = localStorage.getItem(`notified_${interview.id}_${minutesUntil}`);
+                    if (!lastNotified) {
+                        const message = minutesUntil === 60 ? 
+                            `Interview with ${interview.candidateName} in 1 hour` :
+                            `Interview with ${interview.candidateName} in 15 minutes!`;
+                        
+                        new Notification('Interview Reminder 🔔', {
+                            body: message,
+                            icon: '👔'
+                        });
+                        
+                        localStorage.setItem(`notified_${interview.id}_${minutesUntil}`, 'true');
+                    }
+                }
+            });
+        }
+
+        function openAddModal() {
+            document.getElementById('addModal').classList.remove('hidden');
+        }
+
+        function closeAddModal() {
+            document.getElementById('addModal').classList.add('hidden');
+            document.getElementById('candidateName').value = '';
+            document.getElementById('position').value = '';
+            document.getElementById('phoneNumber').value = '';
+            document.getElementById('dateTime').value = '';
+            document.getElementById('notes').value = '';
+        }
+
+        function closeModalOnOverlay(event) {
+            if (event.target.classList.contains('modal-overlay')) {
+                closeAddModal();
+            }
+        }
+
+        function handleAddInterview(event) {
+            event.preventDefault();
+            
+            const interview = {
+                id: Date.now(),
+                candidateName: document.getElementById('candidateName').value,
+                position: document.getElementById('position').value,
+                phoneNumber: document.getElementById('phoneNumber').value,
+                dateTime: document.getElementById('dateTime').value,
+                notes: document.getElementById('notes').value,
+                status: 'scheduled',
+                createdAt: new Date().toISOString()
+            };
+            
+            interviews.push(interview);
+            saveInterviews();
+            renderInterviews();
+            closeAddModal();
+        }
+
+        function updateStatus(id, status) {
+            interviews = interviews.map(int => 
+                int.id === id ? { ...int, status } : int
+            );
+            saveInterviews();
+            renderInterviews();
+        }
+
+        function deleteInterview(id) {
+            if (confirm('Are you sure you want to delete this interview? 🗑️')) {
+                interviews = interviews.filter(int => int.id !== id);
+                saveInterviews();
+                renderInterviews();
+            }
+        }
+
+        function toggleExpand(id) {
+            expandedId = expandedId === id ? null : id;
+            renderInterviews();
+        }
+
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { 
+                weekday: 'short', 
+                month: 'short', 
+                day: 'numeric',
+                year: 'numeric'
+            });
+        }
+
+        function formatTime(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleTimeString('en-US', { 
+                hour: 'numeric', 
+                minute: '2-digit',
+                hour12: true 
+            });
+        }
+
+        function renderInterviews() {
+            const listEl = document.getElementById('interviewList');
+            const emptyEl = document.getElementById('emptyState');
+            const upcomingEl = document.getElementById('upcomingAlert');
+            
+            if (interviews.length === 0) {
+                listEl.innerHTML = '';
+                emptyEl.classList.remove('hidden');
+                upcomingEl.classList.add('hidden');
+                return;
+            }
+            
+            emptyEl.classList.add('hidden');
+            
+            const sorted = [...interviews].sort((a, b) => 
+                new Date(a.dateTime) - new Date(b.dateTime)
+            );
+            
+            const now = new Date();
+            const upcoming = sorted.filter(int => 
+                new Date(int.dateTime) >= now && int.status === 'scheduled'
+            );
+            
+            if (upcoming.length > 0) {
+                upcomingEl.classList.remove('hidden');
+                upcomingEl.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                        <span style="font-size: 28px;">⏰</span>
+                        <span style="font-weight: 800; font-size: 18px; background: var(--gradient-2); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                            ${upcoming.length} Upcoming Interview${upcoming.length > 1 ? 's' : ''}
+                        </span>
+                    </div>
+                    ${upcoming.slice(0, 2).map(int => {
+                        const timeUntil = new Date(int.dateTime) - now;
+                        const hoursUntil = Math.floor(timeUntil / 3600000);
+                        const minutesUntil = Math.floor((timeUntil % 3600000) / 60000);
+                        const timeText = hoursUntil > 0 ? 
+                            `in ${hoursUntil}h ${minutesUntil}m` :
+                            minutesUntil > 0 ? `in ${minutesUntil} minutes` : 'Starting now!';
+                        
+                        return `
+                            <div style="font-size: 15px; color: var(--text-primary); margin-top: 8px; padding: 10px; background: var(--bg-primary); border-radius: 12px;">
+                                <strong>👤 ${int.candidateName}</strong> - 💼 ${int.position}<br>
+                                <span style="font-size: 13px; color: var(--text-secondary); font-weight: 600;">⏱️ ${timeText}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                `;
+            } else {
+                upcomingEl.classList.add('hidden');
+            }
+            
+            listEl.innerHTML = sorted.map((interview, index) => {
+                const isPast = new Date(interview.dateTime) < now;
+                const isExpanded = expandedId === interview.id;
+                
+                const statusClasses = {
+                    scheduled: 'status-scheduled',
+                    completed: 'status-completed',
+                    cancelled: 'status-cancelled',
+                    'offer-extended': 'status-offer-extended',
+                    rejected: 'status-rejected'
+                };
+                
+                const statusIcons = {
+                    scheduled: '📅',
+                    completed: '✅',
+                    cancelled: '❌',
+                    'offer-extended': '🎉',
+                    rejected: '⚠️'
+                };
+                
+                const statusLabels = {
+                    scheduled: 'Scheduled',
+                    completed: 'Completed',
+                    cancelled: 'Cancelled',
+                    'offer-extended': 'Offer Extended',
+                    rejected: 'Rejected'
+                };
+                
+                return `
+                    <div class="interview-card" style="animation-delay: ${index * 0.05}s;" onclick="toggleExpand(${interview.id})">
+                        <div class="card-icon">👔</div>
+                        
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+                            <h3 style="margin: 0; font-size: 20px; font-weight: 800; color: var(--text-primary); flex: 1;">
+                                ${interview.candidateName}
+                            </h3>
+                            <div class="status-badge ${statusClasses[interview.status]}">
+                                <span>${statusIcons[interview.status]}</span>
+                                <span>${statusLabels[interview.status]}</span>
+                            </div>
+                        </div>
+                        
+                        <div class="field-row">
+                            <div class="field-icon">💼</div>
+                            <div class="field-content">
+                                <div class="field-label">Position</div>
+                                <div class="field-value">${interview.position}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="field-row">
+                            <div class="field-icon">📞</div>
+                            <div class="field-content">
+                                <div class="field-label">Phone</div>
+                                <div class="field-value">${interview.phoneNumber}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="field-row">
+                            <div class="field-icon">📅</div>
+                            <div class="field-content">
+                                <div class="field-label">Date</div>
+                                <div class="field-value">${formatDate(interview.dateTime)}</div>
+                            </div>
+                        </div>
+                        
+                        <div class="field-row">
+                            <div class="field-icon">⏰</div>
+                            <div class="field-content">
+                                <div class="field-label">Time</div>
+                                <div class="field-value">${formatTime(interview.dateTime)}</div>
+                            </div>
+                        </div>
+                        
+                        ${isExpanded ? `
+                            <div class="expanded-actions" onclick="event.stopPropagation()">
+                                ${interview.notes ? `
+                                    <div class="notes-display" style="grid-column: 1 / -1;">
+                                        <div class="notes-label">
+                                            <span>📝</span>
+                                            <span>Notes</span>
+                                        </div>
+                                        ${interview.notes}
+                                    </div>
+                                ` : ''}
+                                
+                                <button class="action-btn action-complete" onclick="updateStatus(${interview.id}, 'completed')">
+                                    <span style="font-size: 18px;">✅</span>
+                                    <span>Complete</span>
+                                </button>
+                                
+                                <button class="action-btn action-offer" onclick="updateStatus(${interview.id}, 'offer-extended')">
+                                    <span style="font-size: 18px;">🎉</span>
+                                    <span>Offer</span>
+                                </button>
+                                
+                                <button class="action-btn action-reject" onclick="updateStatus(${interview.id}, 'rejected')">
+                                    <span style="font-size: 18px;">⚠️</span>
+                                    <span>Reject</span>
+                                </button>
+                                
+                                <button class="action-btn action-delete" onclick="deleteInterview(${interview.id})">
+                                    <span style="font-size: 18px;">🗑️</span>
+                                    <span>Delete</span>
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+    </script>
+</body>
+</html>
