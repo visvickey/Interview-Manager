@@ -734,9 +734,10 @@
                 if (minutesUntil === 15 || minutesUntil === 60) {
                     const lastNotified = localStorage.getItem(`notified_${interview.id}_${minutesUntil}`);
                     if (!lastNotified) {
+                        const candidateName = interview.candidateName || 'Candidate';
                         const message = minutesUntil === 60 ? 
-                            `Interview with ${interview.candidateName} in 1 hour` :
-                            `Interview with ${interview.candidateName} in 15 minutes!`;
+                            `Interview with ${candidateName} in 1 hour` :
+                            `Interview with ${candidateName} in 15 minutes!`;
                         
                         new Notification('Interview Reminder 🔔', {
                             body: message,
@@ -810,7 +811,9 @@
         }
 
         function formatDate(dateStr) {
+            if (!dateStr) return 'Not set';
             const date = new Date(dateStr);
+            if (isNaN(date.getTime())) return 'Invalid Date';
             return date.toLocaleDateString('en-US', { 
                 weekday: 'short', 
                 month: 'short', 
@@ -820,7 +823,9 @@
         }
 
         function formatTime(dateStr) {
+            if (!dateStr) return 'Not set';
             const date = new Date(dateStr);
+            if (isNaN(date.getTime())) return 'Invalid Time';
             return date.toLocaleTimeString('en-US', { 
                 hour: 'numeric', 
                 minute: '2-digit',
@@ -870,7 +875,7 @@
                         
                         return `
                             <div style="font-size: 15px; color: var(--text-primary); margin-top: 8px; padding: 10px; background: var(--bg-primary); border-radius: 12px;">
-                                <strong>👤 ${int.candidateName}</strong> - 💼 ${int.position}<br>
+                                <strong>👤 ${int.candidateName || 'No name'}</strong> - 💼 ${int.position || 'Not specified'}<br>
                                 <span style="font-size: 13px; color: var(--text-secondary); font-weight: 600;">⏱️ ${timeText}</span>
                             </div>
                         `;
@@ -914,7 +919,7 @@
                         
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
                             <h3 style="margin: 0; font-size: 20px; font-weight: 800; color: var(--text-primary); flex: 1;">
-                                ${interview.candidateName}
+                                ${interview.candidateName || 'No name'}
                             </h3>
                             <div class="status-badge ${statusClasses[interview.status]}">
                                 <span>${statusIcons[interview.status]}</span>
@@ -926,7 +931,7 @@
                             <div class="field-icon">💼</div>
                             <div class="field-content">
                                 <div class="field-label">Position</div>
-                                <div class="field-value">${interview.position}</div>
+                                <div class="field-value">${interview.position || 'Not specified'}</div>
                             </div>
                         </div>
                         
@@ -934,7 +939,7 @@
                             <div class="field-icon">📞</div>
                             <div class="field-content">
                                 <div class="field-label">Phone</div>
-                                <div class="field-value">${interview.phoneNumber}</div>
+                                <div class="field-value">${interview.phoneNumber || 'Not provided'}</div>
                             </div>
                         </div>
                         
